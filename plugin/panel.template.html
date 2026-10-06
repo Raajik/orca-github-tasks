@@ -3,6 +3,24 @@
   <head>
     <meta charset="utf-8" />
     <style>
+      :root {
+        --bug: #d1242f;
+        --feature: #0969da;
+        --docs: #9a6700;
+        --other: #8250df;
+        --fresh: #1a7f37;
+        --recent: #9a6700;
+        --stripe: color-mix(in srgb, var(--foreground, #000) 4%, transparent);
+      }
+      :root.dark {
+        --bug: #ff7b72;
+        --feature: #58a6ff;
+        --docs: #e3b341;
+        --other: #bc8cff;
+        --fresh: #3fb950;
+        --recent: #d29922;
+        --stripe: color-mix(in srgb, var(--foreground, #fff) 5%, transparent);
+      }
       body {
         margin: 0;
         padding: 10px;
@@ -13,7 +31,25 @@
       }
       .muted { color: var(--muted-foreground, #999); }
       .error { color: var(--destructive, #e5484d); }
-      header { display: flex; align-items: baseline; gap: 6px; margin-bottom: 8px; }
+      header {
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+        margin: -10px -10px 8px;
+        padding: 10px 10px 8px;
+        border-bottom: 2px solid transparent;
+        border-image: linear-gradient(90deg, var(--feature), var(--other), var(--bug)) 1;
+        background: linear-gradient(180deg, color-mix(in srgb, var(--other) 12%, transparent), transparent);
+      }
+      header h1 { color: color-mix(in srgb, var(--other) 55%, var(--foreground, #ddd)); }
+      #count {
+        padding: 0 7px;
+        border-radius: 9px;
+        font-size: 11px;
+        color: var(--feature);
+        background: color-mix(in srgb, var(--feature) 15%, transparent);
+      }
+      #count:empty { display: none; }
       header h1 { font-size: 13px; margin: 0; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       input[type='search'], select {
         width: 100%;
@@ -27,21 +63,36 @@
         font: inherit;
       }
       ul { list-style: none; margin: 0; padding: 0; }
-      li.issue { border-bottom: 1px solid var(--border, #333); }
-      .row { display: flex; gap: 6px; padding: 6px 2px; cursor: pointer; }
-      .row:hover { background: var(--accent, #2a2a2a); }
-      .num { color: var(--muted-foreground, #999); flex: none; }
+      li.issue {
+        --kind: var(--other);
+        border-left: 3px solid var(--kind);
+        border-bottom: 1px solid color-mix(in srgb, var(--border, #333) 60%, transparent);
+      }
+      li.issue:nth-child(even) { background: var(--stripe); }
+      li.issue.bug { --kind: var(--bug); }
+      li.issue.feature { --kind: var(--feature); }
+      li.issue.docs { --kind: var(--docs); }
+      li.issue.open-detail { background: color-mix(in srgb, var(--kind) 8%, transparent); }
+      .row { display: flex; gap: 6px; padding: 6px 4px 6px 6px; cursor: pointer; }
+      .row:hover { background: color-mix(in srgb, var(--kind) 12%, transparent); }
+      .num { color: var(--kind); font-weight: 600; flex: none; }
+      .age-fresh { color: var(--fresh); font-weight: 600; }
+      .age-recent { color: var(--recent); }
+      .who { color: color-mix(in srgb, var(--feature) 60%, var(--muted-foreground, #999)); }
       .title { flex: 1; min-width: 0; }
       .meta { margin-top: 2px; font-size: 11px; color: var(--muted-foreground, #999); }
       .label {
+        --c: var(--muted-foreground, #888);
         display: inline-block;
         margin: 2px 4px 0 0;
         padding: 0 6px;
-        border: 1px solid var(--border, #444);
+        border: 1px solid color-mix(in srgb, var(--c) 55%, transparent);
         border-radius: 9px;
         font-size: 10.5px;
+        background: color-mix(in srgb, var(--c) 18%, transparent);
+        color: color-mix(in srgb, var(--c) 65%, var(--foreground, #ddd));
       }
-      .detail { padding: 4px 2px 10px; }
+      .detail { padding: 4px 6px 10px; }
       .body {
         white-space: pre-wrap;
         overflow-wrap: anywhere;
@@ -178,6 +229,20 @@
           })
         })
         return button
+      }
+
+      function kindOf(issue) {
+        var names = issue.labels.map(function (l) { return l.name.toLowerCase() }).join(' ')
+        var title = issue.title.toLowerCase()
+        if (/bug|crash|regression/.test(names) || /^\[bug\]/.test(title)) return 'bug'
+        if (/feature|enhancement/.test(names) || /^\[feature\]/.test(title)) return 'feature'
+        if (/doc|question/.test(names) || /^\[(docs?|question)\]/.test(title)) return 'docs'
+        return 'other'
+      }
+
+      function ageClass(iso) {
+        var hours = (Date.now() - Date.parse(iso)) / 3600000
+        return hours < 24 ? 'age-fresh' : hours < 168 ? 'age-recent' : ''
       }
 
       function age(iso) {
@@ -371,7 +436,7 @@
         var query = els.filter.value.trim().toLowerCase()
         var issues = (entry.issues || []).filter(function (issue) {
           if (!query) return true
-          var haystack = ('#' + issue.number + ' ' + issue.title + ' ' + issue.labels.join(' ')).toLowerCase()
+          var haystack = ('#' + issue.number + ' ' + issue.title + ' ' + issue.labels.map(function (l) { return l.name }).join(' ')).toLowerCase()
           return haystack.indexOf(query) !== -1
         })
         els.count.textContent = issues.length + ' open'
@@ -381,19 +446,24 @@
         }
 
         issues.forEach(function (issue) {
-          var li = el('li', 'issue')
+          var key = repo.id + '#' + issue.number
+          var li = el('li', 'issue ' + kindOf(issue) + (expanded === key ? ' open-detail' : ''))
           var row = el('div', 'row')
           row.appendChild(el('span', 'num', '#' + issue.number))
           var title = el('div', 'title', issue.title)
           var meta = el('div', 'meta')
-          issue.labels.forEach(function (name) { meta.appendChild(el('span', 'label', name)) })
-          var who = issue.assignees.length ? '→ ' + issue.assignees.join(', ') : 'by ' + issue.author
-          meta.appendChild(document.createTextNode(who + ' · ' + age(issue.updatedAt)))
+          issue.labels.forEach(function (label) {
+            var chip = el('span', 'label', label.name)
+            if (/^[0-9a-f]{6}$/i.test(label.color)) chip.style.setProperty('--c', '#' + label.color)
+            meta.appendChild(chip)
+          })
+          meta.appendChild(el('span', 'who', issue.assignees.length ? '→ ' + issue.assignees.join(', ') : 'by ' + issue.author))
+          meta.appendChild(document.createTextNode(' · '))
+          meta.appendChild(el('span', ageClass(issue.updatedAt), age(issue.updatedAt)))
           title.appendChild(meta)
           row.appendChild(title)
           row.appendChild(copyButton(issue.url, 'Copy link to #' + issue.number))
           li.appendChild(row)
-          var key = repo.id + '#' + issue.number
           row.addEventListener('click', function () {
             expanded = expanded === key ? null : key
             render()

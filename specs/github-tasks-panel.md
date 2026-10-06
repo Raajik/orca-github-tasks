@@ -69,7 +69,13 @@ So the data has to be baked into `panel.html` by something outside the panel.
      when exactly one repo matches; otherwise shows a repo picker listing the
      candidates (or all GitHub repos when none match).
   3. Lists open issues: number, title, labels, assignee, age. A text filter
-     narrows by number, title or label.
+     narrows by number, title or label. Styling, with a palette for Orca's
+     light and dark modes (the panel `<html>` has class `light` or `dark`):
+     rows alternate background; each row has a left stripe and issue number
+     coloured by kind (bug red, feature/enhancement blue, docs/question amber,
+     anything else violet; from labels, else a `[Bug]`/`[Feature]` title
+     prefix); labels use their GitHub colours; age is green under a day,
+     amber under a week, muted after.
   4. Clicking an issue expands its body as plain text (no Markdown rendering,
      no HTML, so issue content cannot run script in the panel, which can type
      into terminals) with its images shown inline at panel width, and the URL

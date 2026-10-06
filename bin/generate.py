@@ -111,7 +111,7 @@ def fetch_issues(slug):
             {
                 "number": i["number"],
                 "title": i["title"],
-                "labels": [label["name"] for label in i.get("labels") or []],
+                "labels": [{"name": label["name"], "color": label.get("color") or "888888"} for label in i.get("labels") or []],
                 "assignees": [a["login"] for a in i.get("assignees") or []],
                 "author": (i.get("user") or {}).get("login", ""),
                 "updatedAt": i.get("updated_at", ""),
