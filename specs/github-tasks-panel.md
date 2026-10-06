@@ -62,6 +62,22 @@ So the data has to be baked into `panel.html` by something outside the panel.
 - Refresh: a systemd user timer runs the generator every 3 minutes. The
   plugin also contributes a command, "GitHub Tasks: Refresh now", whose worker
   runs the generator once.
+- Refresh button in the panel. The panel's only outward call that leaves the
+  app is `notifications.show`, which Orca turns into a desktop notification
+  titled `github-tasks: <title>` (via the freedesktop Notifications D-Bus
+  service; Orca also relays it to paired mobile clients). So:
+  1. The button calls `notifications.show` with title
+     `Refreshing GitHub issues` and shows "Refreshing…" until the panel
+     reloads (or "Refresh did not arrive" after 60 s).
+  2. `bin/refresh-watch.py` (systemd user service
+     `orca-github-tasks-watch.service`) runs `dbus-monitor` on the session bus
+     for `org.freedesktop.Notifications.Notify` and, when a summary equals
+     `github-tasks: Refreshing GitHub issues`, runs `generate.py --force`.
+     Requests arriving while a run is in progress are coalesced into one
+     follow-up run.
+  3. `--force` writes `panel.html` even when the data is unchanged, so the
+     panel always reloads and the footer resets.
+  The plugin therefore also requests the `notifications:show` capability.
 - Panel behaviour:
   1. Polls `workspace.readContext` every 2 s.
   2. Picks the repo: first by any terminal handle that the snapshot maps to a
@@ -108,6 +124,8 @@ plugin.
   sidebar, and switching projects switches the list within a few seconds.
 - "Send to terminal" types the issue reference into the chosen terminal.
 - Every issue row and the repo heading have a copy-link button.
+- The panel's refresh button reloads the panel with fresh data within a few
+  seconds.
 - A project without a GitHub remote shows "No GitHub remote for this project".
 - Screenshots in issue bodies, including private repos, show inline.
 - `plugin/panel.html` stays under 10 MB.

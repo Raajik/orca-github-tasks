@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh the Orca GitHub Tasks panel when its refresh button is pressed
+
+[Service]
+ExecStart=/usr/bin/python3 /path/to/orca-github-tasks/bin/refresh-watch.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

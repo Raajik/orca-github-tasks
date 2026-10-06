@@ -130,12 +130,15 @@
       }
       .copy:hover { border-color: var(--border, #555); color: var(--foreground, #ddd); }
       .copied { color: var(--primary, #3b82f6); }
+      #refresh { font-size: 15px; color: var(--feature); }
+      #refresh.spinning { animation: spin 1s linear infinite; }
+      @keyframes spin { to { transform: rotate(360deg); } }
       .manual { width: 100%; font-size: 11px; margin: 4px 0; }
       footer { margin-top: 10px; font-size: 11px; }
     </style>
   </head>
   <body>
-    <header><h1 id="heading">GitHub Tasks</h1><span id="repoLink"></span><span class="muted" id="count" style="margin-left:auto;flex:none"></span></header>
+    <header><h1 id="heading">GitHub Tasks</h1><span id="repoLink"></span><span class="muted" id="count" style="margin-left:auto;flex:none"></span><button id="refresh" class="copy" title="Refresh issues from GitHub">⟳</button></header>
     <div id="manualCopy"></div>
     <select id="repoPicker" hidden></select>
     <input id="filter" type="search" placeholder="Filter by #, title or label" hidden />
@@ -147,10 +150,11 @@
       var DATA = /*__GITHUB_TASKS_DATA__*/null
 
       var els = {}
-      ;['heading', 'count', 'repoLink', 'manualCopy', 'repoPicker', 'filter', 'message', 'list', 'footer'].forEach(function (id) {
+      ;['heading', 'count', 'refresh', 'repoLink', 'manualCopy', 'repoPicker', 'filter', 'message', 'list', 'footer'].forEach(function (id) {
         els[id] = document.getElementById(id)
       })
 
+      var refreshNote = ''
       var ctx = null
       var ctxKey = ''
       var pickedRepoByKey = {}
@@ -390,9 +394,9 @@
         els.count.textContent = ''
         els.repoLink.innerHTML = ''
         els.manualCopy.innerHTML = ''
-        els.footer.textContent = DATA
+        els.footer.textContent = refreshNote || (DATA
           ? 'Data last changed ' + age(new Date(DATA.generatedAt).toISOString()) + ' ago'
-          : ''
+          : '')
 
         if (!DATA) {
           els.message.textContent = 'No snapshot yet. Run bin/generate.py or "GitHub Tasks: Refresh now".'
@@ -478,6 +482,34 @@
         render()
       })
       els.filter.addEventListener('input', render)
+
+      // The panel cannot reach the generator, but Orca turns this into a desktop
+      // notification that bin/refresh-watch.py listens for. A refresh rewrites
+      // panel.html, and Orca reloads this page, which ends the "Refreshing…" state.
+      els.refresh.addEventListener('click', function () {
+        if (els.refresh.disabled) return
+        els.refresh.disabled = true
+        els.refresh.classList.add('spinning')
+        refreshNote = 'Refreshing…'
+        render()
+        call('notifications.show', {
+          title: 'Refreshing GitHub issues',
+          body: 'The GitHub Tasks panel reloads when the new data arrives.'
+        }).then(function (result) {
+          if (!result.ok) {
+            refreshNote = 'Refresh failed: ' + (result.error || result.errorCode)
+            els.refresh.disabled = false
+            els.refresh.classList.remove('spinning')
+            render()
+          }
+        })
+        setTimeout(function () {
+          refreshNote = 'Refresh did not arrive. Is orca-github-tasks-watch running?'
+          els.refresh.disabled = false
+          els.refresh.classList.remove('spinning')
+          render()
+        }, 60000)
+      })
 
       function poll() {
         call('workspace.readContext').then(function (result) {

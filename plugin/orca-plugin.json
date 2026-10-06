@@ -12,5 +12,9 @@
     "panels": [{ "id": "issues", "title": "GitHub Tasks", "icon": "bug", "entry": "panel.html" }],
     "commands": [{ "id": "refresh", "title": "GitHub Tasks: Refresh now", "context": "global" }]
   },
-  "capabilities": [{ "kind": "workspace:read" }, { "kind": "terminal:send" }]
+  "capabilities": [
+    { "kind": "workspace:read" },
+    { "kind": "terminal:send" },
+    { "kind": "notifications:show" }
+  ]
 }

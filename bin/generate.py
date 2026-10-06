@@ -268,7 +268,8 @@ def main():
     snapshot = build_snapshot()
     html = render(snapshot)
     old = OUTPUT.read_text() if OUTPUT.exists() else ""
-    changed = not same_content(old, html)
+    # --force: the panel's refresh button waits for a reload even when nothing changed.
+    changed = "--force" in sys.argv or not same_content(old, html)
     if changed:
         tmp = OUTPUT.with_name(".panel.html.tmp")
         tmp.write_text(html)
