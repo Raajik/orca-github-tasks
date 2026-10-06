@@ -10,7 +10,7 @@ Needs `gh` (logged in) and Pillow for the system `python3` (`python3-pillow` on 
 1. Orca → Settings → Plugins → Development → Add path:
    `/path/to/orca-github-tasks/plugin`
 2. Review and enable "GitHub Tasks" (it asks for workspace read + terminal send).
-3. Click the flag icon in the right sidebar.
+3. Click the bug icon in the right sidebar.
 
 `systemd/orca-github-tasks.timer` regenerates `plugin/panel.html` every
 3 minutes (enable with `systemctl --user link` on both units, then
