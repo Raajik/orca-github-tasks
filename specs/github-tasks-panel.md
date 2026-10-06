@@ -60,6 +60,8 @@ So the data has to be baked into `panel.html` by something outside the panel.
   7. A repo whose fetch fails is kept with an error message; the run does
      not abort.
 - Refresh: a systemd user timer runs the generator every 3 minutes. The
+  committed units contain `@REPO_DIR@` instead of a local path;
+  `bin/install-units.sh` writes copies with the checkout's path filled in. The
   plugin also contributes a command, "GitHub Tasks: Refresh now", whose worker
   runs the generator once.
 - Refresh button in the panel. The panel's only outward call that leaves the
