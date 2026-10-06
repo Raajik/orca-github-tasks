@@ -1,0 +1,16 @@
+{
+  "manifestVersion": 1,
+  "id": "github-tasks",
+  "publisher": "raajik",
+  "name": "GitHub Tasks",
+  "version": "0.1.0",
+  "description": "Open GitHub issues of the selected project in the right sidebar.",
+  "engines": { "orca": ">=1.4.0" },
+  "pluginApi": 1,
+  "main": "main.mjs",
+  "contributes": {
+    "panels": [{ "id": "issues", "title": "GitHub Tasks", "icon": "flag", "entry": "panel.html" }],
+    "commands": [{ "id": "refresh", "title": "GitHub Tasks: Refresh now", "context": "global" }]
+  },
+  "capabilities": [{ "kind": "workspace:read" }, { "kind": "terminal:send" }]
+}

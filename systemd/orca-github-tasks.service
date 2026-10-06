@@ -1,0 +1,6 @@
+[Unit]
+Description=Refresh the Orca GitHub Tasks panel snapshot
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /path/to/orca-github-tasks/bin/generate.py

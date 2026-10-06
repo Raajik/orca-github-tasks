@@ -1,0 +1,364 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body {
+        margin: 0;
+        padding: 10px;
+        font-family: system-ui, sans-serif;
+        font-size: 12.5px;
+        color: var(--foreground, #ddd);
+        background: var(--background, transparent);
+      }
+      .muted { color: var(--muted-foreground, #999); }
+      .error { color: var(--destructive, #e5484d); }
+      header { display: flex; align-items: baseline; gap: 6px; margin-bottom: 8px; }
+      header h1 { font-size: 13px; margin: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      input[type='search'], select {
+        width: 100%;
+        box-sizing: border-box;
+        margin: 0 0 8px;
+        padding: 5px 7px;
+        border: 1px solid var(--input, #555);
+        border-radius: 6px;
+        background: var(--background, #1e1e1e);
+        color: var(--foreground, #ddd);
+        font: inherit;
+      }
+      ul { list-style: none; margin: 0; padding: 0; }
+      li.issue { border-bottom: 1px solid var(--border, #333); }
+      .row { display: flex; gap: 6px; padding: 6px 2px; cursor: pointer; }
+      .row:hover { background: var(--accent, #2a2a2a); }
+      .num { color: var(--muted-foreground, #999); flex: none; }
+      .title { flex: 1; min-width: 0; }
+      .meta { margin-top: 2px; font-size: 11px; color: var(--muted-foreground, #999); }
+      .label {
+        display: inline-block;
+        margin: 2px 4px 0 0;
+        padding: 0 6px;
+        border: 1px solid var(--border, #444);
+        border-radius: 9px;
+        font-size: 10.5px;
+      }
+      .detail { padding: 4px 2px 10px; }
+      .body {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        max-height: 520px;
+        overflow: auto;
+        padding: 6px;
+        border-radius: 6px;
+        background: var(--muted, #252525);
+      }
+      .body img.shot { display: block; max-width: 100%; margin: 6px 0; border-radius: 4px; cursor: zoom-in; }
+      .body img.shot.full { max-width: none; cursor: zoom-out; }
+      .url { user-select: all; font-size: 11px; margin: 6px 0; overflow-wrap: anywhere; }
+      .send { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+      .send select { flex: 1 1 140px; width: auto; margin: 0; }
+      button {
+        padding: 4px 10px;
+        border: 1px solid var(--border, #555);
+        border-radius: 6px;
+        background: var(--primary, #3b82f6);
+        color: var(--primary-foreground, #fff);
+        cursor: pointer;
+        font: inherit;
+      }
+      button[disabled] { opacity: 0.5; cursor: default; }
+      label.submit { display: flex; gap: 4px; align-items: center; }
+      footer { margin-top: 10px; font-size: 11px; }
+    </style>
+  </head>
+  <body>
+    <header><h1 id="heading">GitHub Tasks</h1><span class="muted" id="count"></span></header>
+    <select id="repoPicker" hidden></select>
+    <input id="filter" type="search" placeholder="Filter by #, title or label" hidden />
+    <div id="message" class="muted"></div>
+    <ul id="list"></ul>
+    <footer class="muted" id="footer"></footer>
+    <script>
+      'use strict'
+      var DATA = /*__GITHUB_TASKS_DATA__*/null
+
+      var els = {}
+      ;['heading', 'count', 'repoPicker', 'filter', 'message', 'list', 'footer'].forEach(function (id) {
+        els[id] = document.getElementById(id)
+      })
+
+      var ctx = null
+      var ctxKey = ''
+      var pickedRepoByKey = {}
+      var expanded = null
+      var seq = 0
+      var pending = {}
+
+      function call(action, params) {
+        return new Promise(function (resolve) {
+          var requestId = 'req-' + ++seq
+          pending[requestId] = resolve
+          window.parent.postMessage(
+            { type: 'orca-panel-action', requestId: requestId, action: action, params: params },
+            '*'
+          )
+        })
+      }
+
+      window.addEventListener('message', function (event) {
+        var data = event.data
+        if (!data || data.type !== 'orca-panel-action-result') return
+        var resolve = pending[data.requestId]
+        if (!resolve) return
+        delete pending[data.requestId]
+        resolve(data)
+      })
+
+      function el(tag, className, text) {
+        var node = document.createElement(tag)
+        if (className) node.className = className
+        if (text != null) node.textContent = text
+        return node
+      }
+
+      function age(iso) {
+        var ms = Date.now() - Date.parse(iso)
+        if (!(ms >= 0)) return ''
+        var mins = Math.round(ms / 60000)
+        if (mins < 60) return mins + 'm'
+        var hours = Math.round(mins / 60)
+        if (hours < 48) return hours + 'h'
+        return Math.round(hours / 24) + 'd'
+      }
+
+      function repoById(id) {
+        for (var i = 0; i < DATA.repos.length; i++) if (DATA.repos[i].id === id) return DATA.repos[i]
+        return null
+      }
+
+      // Candidate repos for the focused worktree, best evidence first.
+      function candidates() {
+        if (!ctx) return []
+        for (var i = 0; i < ctx.terminals.length; i++) {
+          var known = DATA.terminals[ctx.terminals[i].id]
+          if (known && known.repoId && repoById(known.repoId)) return [repoById(known.repoId)]
+        }
+        var branch = (ctx.branch || '').replace(/^refs\/heads\//, '')
+        var ids = {}
+        DATA.worktrees.forEach(function (w) {
+          if (w.displayName === ctx.displayName && w.branch === branch) ids[w.repoId] = true
+        })
+        return Object.keys(ids).map(repoById).filter(Boolean)
+      }
+
+      // Manual repo picks survive terminals opening and closing.
+      function pickKey() {
+        return ctx ? ctx.displayName + '\n' + ctx.branch : ''
+      }
+
+      function currentRepo() {
+        var found = candidates()
+        if (found.length === 1) return { repo: found[0], choices: null }
+        var choices = found.length ? found : DATA.repos.filter(function (r) { return r.slug })
+        var picked = repoById(pickedRepoByKey[pickKey()])
+        return { repo: picked, choices: choices }
+      }
+
+      function terminalOptions() {
+        var list = (ctx ? ctx.terminals : []).map(function (t) {
+          var known = DATA.terminals[t.id] || {}
+          // Titles change constantly (agent spinners), so they are not in the snapshot.
+          var name = (known.agent || 'terminal') + ' ' + t.id.slice(5, 13)
+          return { id: t.id, label: name, agent: !!known.agent }
+        })
+        list.sort(function (a, b) { return Number(b.agent) - Number(a.agent) })
+        return list
+      }
+
+      function renderPicker(choices, repo) {
+        var picker = els.repoPicker
+        picker.hidden = !choices
+        if (!choices) return
+        picker.innerHTML = ''
+        var placeholder = el('option', null, 'Choose the GitHub repo for this project…')
+        placeholder.value = ''
+        picker.appendChild(placeholder)
+        choices.forEach(function (r) {
+          var option = el('option', null, r.slug ? r.name + ' (' + r.slug + ')' : r.name)
+          option.value = r.id
+          picker.appendChild(option)
+        })
+        picker.value = repo ? repo.id : ''
+      }
+
+      // Bodies are plain text with \ue000<image id>\ue000 markers; never parsed as HTML.
+      function renderBody(text) {
+        var body = el('div', 'body')
+        if (!text) {
+          body.textContent = '(no description)'
+          return body
+        }
+        text.split('\ue000').forEach(function (part, index) {
+          if (index % 2 === 0) {
+            if (part) body.appendChild(document.createTextNode(part))
+            return
+          }
+          var uri = DATA.images[part]
+          if (!uri) {
+            body.appendChild(el('span', 'muted', uri === null ? '[image unavailable]' : '[image not embedded]'))
+            return
+          }
+          var img = el('img', 'shot')
+          img.src = uri
+          img.alt = 'screenshot'
+          img.addEventListener('click', function () { img.classList.toggle('full') })
+          body.appendChild(img)
+        })
+        return body
+      }
+
+      function renderDetail(li, issue, repo) {
+        var detail = el('div', 'detail')
+        detail.appendChild(renderBody(issue.body))
+        detail.appendChild(el('div', 'url muted', issue.url))
+
+        var send = el('div', 'send')
+        var select = el('select')
+        var terms = terminalOptions()
+        terms.forEach(function (t) {
+          var option = el('option', null, t.label)
+          option.value = t.id
+          select.appendChild(option)
+        })
+        var submitLabel = el('label', 'submit')
+        var submit = el('input')
+        submit.type = 'checkbox'
+        submitLabel.appendChild(submit)
+        submitLabel.appendChild(document.createTextNode('Submit'))
+        var button = el('button', null, 'Send to terminal')
+        button.disabled = terms.length === 0
+        select.hidden = terms.length === 0
+        var status = el('div', 'muted')
+        button.addEventListener('click', function (event) {
+          event.stopPropagation()
+          var text = 'Work on GitHub issue #' + issue.number + ' in ' + repo.slug + ': ' +
+            issue.title.replace(/\s+/g, ' ') + ' (' + issue.url + ')'
+          call('terminal.sendText', { terminalId: select.value, text: text, enter: submit.checked })
+            .then(function (result) {
+              status.textContent = result.ok && result.value.accepted ? 'Sent.' : 'Not sent: ' +
+                (result.error || result.errorCode || 'terminal refused input')
+            })
+        })
+        send.appendChild(select)
+        send.appendChild(submitLabel)
+        send.appendChild(button)
+        detail.appendChild(send)
+        if (!terms.length) status.textContent = 'No terminal open in this project.'
+        detail.appendChild(status)
+        detail.addEventListener('click', function (event) { event.stopPropagation() })
+        li.appendChild(detail)
+      }
+
+      function render() {
+        els.list.innerHTML = ''
+        els.message.textContent = ''
+        els.message.className = 'muted'
+        els.count.textContent = ''
+        els.footer.textContent = DATA
+          ? 'Data last changed ' + age(new Date(DATA.generatedAt).toISOString()) + ' ago'
+          : ''
+
+        if (!DATA) {
+          els.message.textContent = 'No snapshot yet. Run bin/generate.py or "GitHub Tasks: Refresh now".'
+          return
+        }
+        if (!ctx) {
+          els.heading.textContent = 'GitHub Tasks'
+          els.message.textContent = 'Select a project to see its issues.'
+          els.repoPicker.hidden = true
+          els.filter.hidden = true
+          return
+        }
+
+        var resolved = currentRepo()
+        var repo = resolved.repo
+        renderPicker(resolved.choices, repo)
+        els.heading.textContent = repo ? repo.slug || repo.name : ctx.displayName
+        if (!repo) {
+          els.filter.hidden = true
+          els.message.textContent = 'Not sure which repo this project is. Pick it above.'
+          return
+        }
+        if (!repo.slug) {
+          els.filter.hidden = true
+          els.message.textContent = 'No GitHub remote for this project.'
+          return
+        }
+        var entry = DATA.issuesBySlug[repo.slug] || { issues: [], error: 'not fetched' }
+        if (entry.error) {
+          els.filter.hidden = true
+          els.message.className = 'error'
+          els.message.textContent = 'Could not load issues: ' + entry.error
+          return
+        }
+
+        els.filter.hidden = false
+        var query = els.filter.value.trim().toLowerCase()
+        var issues = (entry.issues || []).filter(function (issue) {
+          if (!query) return true
+          var haystack = ('#' + issue.number + ' ' + issue.title + ' ' + issue.labels.join(' ')).toLowerCase()
+          return haystack.indexOf(query) !== -1
+        })
+        els.count.textContent = issues.length + ' open'
+        if (!issues.length) {
+          els.message.textContent = query ? 'No matching issues.' : 'No open issues.'
+          return
+        }
+
+        issues.forEach(function (issue) {
+          var li = el('li', 'issue')
+          var row = el('div', 'row')
+          row.appendChild(el('span', 'num', '#' + issue.number))
+          var title = el('div', 'title', issue.title)
+          var meta = el('div', 'meta')
+          issue.labels.forEach(function (name) { meta.appendChild(el('span', 'label', name)) })
+          var who = issue.assignees.length ? '→ ' + issue.assignees.join(', ') : 'by ' + issue.author
+          meta.appendChild(document.createTextNode(who + ' · ' + age(issue.updatedAt)))
+          title.appendChild(meta)
+          row.appendChild(title)
+          li.appendChild(row)
+          var key = repo.id + '#' + issue.number
+          row.addEventListener('click', function () {
+            expanded = expanded === key ? null : key
+            render()
+          })
+          if (expanded === key) renderDetail(li, issue, repo)
+          els.list.appendChild(li)
+        })
+      }
+
+      els.repoPicker.addEventListener('change', function () {
+        pickedRepoByKey[pickKey()] = els.repoPicker.value
+        render()
+      })
+      els.filter.addEventListener('input', render)
+
+      function poll() {
+        call('workspace.readContext').then(function (result) {
+          var next = result.ok ? result.value : null
+          var key = next
+            ? next.displayName + '\n' + next.branch + '\n' + next.terminals.map(function (t) { return t.id }).join(',')
+            : ''
+          if (key !== ctxKey) {
+            ctx = next
+            ctxKey = key
+            render()
+          }
+        })
+      }
+
+      render()
+      poll()
+      setInterval(poll, 2000)
+    </script>
+  </body>
+</html>
