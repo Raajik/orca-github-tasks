@@ -23,6 +23,7 @@ I prototyped this as a dev plugin to check it is useful: https://github.com/Raaj
 
 - the panel CSP is `connect-src 'none'; img-src data:` and the panel can only call `workspace.readContext`, `terminal.sendText` and `notifications.show`
 - there is no panel ↔ worker channel (#15638)
+- the panel iframe is `sandbox="allow-scripts"` and the shell cancels link clicks, so a panel cannot open an issue in the browser (the prototype offers copy-link buttons instead)
 - `workspace.readContext` returns `displayName` and `branch` but no repo identity, so a panel cannot tell which repo is focused when several projects share a name like `main`
 
 So the prototype runs an external script on a timer that calls `gh` and bakes the issues and images (as `data:` URIs) into `panel.html`, which the dev-plugin watcher then reloads. That costs a full panel reload on every change, a 10 MB `panel.html` cap, and images fetched ahead of time because the panel cannot request one when an issue is opened.

@@ -27,6 +27,7 @@ TEMPLATE = ROOT / "plugin" / "panel.template.html"
 OUTPUT = ROOT / "plugin" / "panel.html"
 PLACEHOLDER = "/*__GITHUB_TASKS_DATA__*/null"
 ISSUE_LIMIT = 50
+ISSUE_PAGES = 3
 BODY_LIMIT = 4000
 THUMB_WIDTH = 720
 IMAGE_MAX_BYTES = 15 * 1024 * 1024
@@ -85,14 +86,20 @@ def github_slug(repo):
 
 def fetch_issues(slug):
     """Open issues (not PRs) with Markdown body plus rendered body_html."""
+    # The issues endpoint also returns PRs, so page until there are enough real issues.
+    issues = []
     try:
-        issues = run_json(
-            [
-                shutil.which("gh") or "gh", "api", "-X", "GET", f"repos/{slug}/issues",
-                "-H", "Accept: application/vnd.github.full+json",
-                "-f", "state=open", "-f", "sort=updated", "-f", "per_page=100",
-            ]
-        )
+        for page in range(1, ISSUE_PAGES + 1):
+            batch = run_json(
+                [
+                    shutil.which("gh") or "gh", "api", "-X", "GET", f"repos/{slug}/issues",
+                    "-H", "Accept: application/vnd.github.full+json",
+                    "-f", "state=open", "-f", "sort=updated", "-f", "per_page=100", "-f", f"page={page}",
+                ]
+            )
+            issues += batch
+            if len(batch) < 100 or sum(1 for i in issues if not i.get("pull_request")) >= ISSUE_LIMIT:
+                break
     except Exception as error:  # noqa: BLE001 - report per repo, keep going
         return None, str(error)
     out = []

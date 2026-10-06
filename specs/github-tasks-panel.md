@@ -29,8 +29,8 @@ So the data has to be baked into `panel.html` by something outside the panel.
      `orca terminal list --json`.
   2. For every distinct `github.com/<owner>/<repo>` remote
      (`gitRemoteIdentity.canonicalKey`), fetches the 50 most recently updated
-     open issues (pull requests excluded) with
-     `gh api repos/<owner>/<repo>/issues` and the
+     open issues (pull requests excluded; up to 3 pages of 100, since the
+     endpoint mixes in PRs) with `gh api repos/<owner>/<repo>/issues` and the
      `application/vnd.github.full+json` media type, which returns both the
      Markdown `body` and the rendered `body_html`.
   3. Images: the image references in `body` (`![..](..)` and `<img src>`) are
@@ -75,12 +75,18 @@ So the data has to be baked into `panel.html` by something outside the panel.
      into terminals) with its images shown inline at panel width, and the URL
      as selectable text. Clicking an image toggles it between panel width and
      full size (scrolls horizontally).
-  5. "Send to terminal" types the single line
+  5. Links: the panel iframe is `sandbox="allow-scripts"` and Orca's shell
+     cancels every link click, so nothing in the panel can open a browser.
+     Each issue row, and the repo heading (its issues page), gets a "copy
+     link" button instead. It tries `navigator.clipboard.writeText`, then
+     `document.execCommand('copy')`; if both fail it shows the URL selected
+     with "press Ctrl+C".
+  6. "Send to terminal" types the single line
      `Work on GitHub issue #<n> in <owner>/<repo>: <title> (<url>)` into the
      chosen terminal of the focused worktree (one line, because a newline would
      submit an agent prompt early). Agent terminals are listed first.
      Enter is not pressed unless "Submit" is ticked.
-  6. Shows when the data last changed, and an error line per repo when the
+  7. Shows when the data last changed, and an error line per repo when the
      fetch failed.
 
 ## Out of scope
@@ -95,6 +101,7 @@ plugin.
   selecting a GitHub-backed project shows its open issues in the right
   sidebar, and switching projects switches the list within a few seconds.
 - "Send to terminal" types the issue reference into the chosen terminal.
+- Every issue row and the repo heading have a copy-link button.
 - A project without a GitHub remote shows "No GitHub remote for this project".
 - Screenshots in issue bodies, including private repos, show inline.
 - `plugin/panel.html` stays under 10 MB.

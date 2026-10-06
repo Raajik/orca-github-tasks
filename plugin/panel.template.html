@@ -14,7 +14,7 @@
       .muted { color: var(--muted-foreground, #999); }
       .error { color: var(--destructive, #e5484d); }
       header { display: flex; align-items: baseline; gap: 6px; margin-bottom: 8px; }
-      header h1 { font-size: 13px; margin: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      header h1 { font-size: 13px; margin: 0; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       input[type='search'], select {
         width: 100%;
         box-sizing: border-box;
@@ -67,11 +67,25 @@
       }
       button[disabled] { opacity: 0.5; cursor: default; }
       label.submit { display: flex; gap: 4px; align-items: center; }
+      .copy {
+        flex: none;
+        align-self: flex-start;
+        padding: 0 5px;
+        border: 1px solid transparent;
+        background: transparent;
+        color: var(--muted-foreground, #999);
+        font-size: 13px;
+        line-height: 18px;
+      }
+      .copy:hover { border-color: var(--border, #555); color: var(--foreground, #ddd); }
+      .copied { color: var(--primary, #3b82f6); }
+      .manual { width: 100%; font-size: 11px; margin: 4px 0; }
       footer { margin-top: 10px; font-size: 11px; }
     </style>
   </head>
   <body>
-    <header><h1 id="heading">GitHub Tasks</h1><span class="muted" id="count"></span></header>
+    <header><h1 id="heading">GitHub Tasks</h1><span id="repoLink"></span><span class="muted" id="count" style="margin-left:auto;flex:none"></span></header>
+    <div id="manualCopy"></div>
     <select id="repoPicker" hidden></select>
     <input id="filter" type="search" placeholder="Filter by #, title or label" hidden />
     <div id="message" class="muted"></div>
@@ -82,7 +96,7 @@
       var DATA = /*__GITHUB_TASKS_DATA__*/null
 
       var els = {}
-      ;['heading', 'count', 'repoPicker', 'filter', 'message', 'list', 'footer'].forEach(function (id) {
+      ;['heading', 'count', 'repoLink', 'manualCopy', 'repoPicker', 'filter', 'message', 'list', 'footer'].forEach(function (id) {
         els[id] = document.getElementById(id)
       })
 
@@ -118,6 +132,52 @@
         if (className) node.className = className
         if (text != null) node.textContent = text
         return node
+      }
+
+      // Orca's panel sandbox blocks opening links, so offer to copy them instead.
+      function copyText(text) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          return navigator.clipboard.writeText(text).then(function () { return true }, function () { return legacyCopy(text) })
+        }
+        return Promise.resolve(legacyCopy(text))
+      }
+
+      function legacyCopy(text) {
+        var area = el('textarea')
+        area.value = text
+        area.style.position = 'fixed'
+        area.style.opacity = '0'
+        document.body.appendChild(area)
+        area.select()
+        var ok = false
+        try { ok = document.execCommand('copy') } catch (_) {}
+        area.remove()
+        return ok
+      }
+
+      function copyButton(url, title) {
+        var button = el('button', 'copy', '⧉')
+        button.title = title + '\n' + url
+        button.addEventListener('click', function (event) {
+          event.stopPropagation()
+          copyText(url).then(function (ok) {
+            els.manualCopy.innerHTML = ''
+            if (ok) {
+              button.textContent = '✓'
+              button.classList.add('copied')
+              setTimeout(function () { button.textContent = '⧉'; button.classList.remove('copied') }, 1200)
+              return
+            }
+            var field = el('input', 'manual')
+            field.readOnly = true
+            field.value = url
+            els.manualCopy.appendChild(field)
+            els.manualCopy.appendChild(el('div', 'muted', 'Copying is blocked here: press Ctrl+C.'))
+            field.focus()
+            field.select()
+          })
+        })
+        return button
       }
 
       function age(iso) {
@@ -263,6 +323,8 @@
         els.message.textContent = ''
         els.message.className = 'muted'
         els.count.textContent = ''
+        els.repoLink.innerHTML = ''
+        els.manualCopy.innerHTML = ''
         els.footer.textContent = DATA
           ? 'Data last changed ' + age(new Date(DATA.generatedAt).toISOString()) + ' ago'
           : ''
@@ -283,6 +345,10 @@
         var repo = resolved.repo
         renderPicker(resolved.choices, repo)
         els.heading.textContent = repo ? repo.slug || repo.name : ctx.displayName
+        els.repoLink.innerHTML = ''
+        if (repo && repo.slug) {
+          els.repoLink.appendChild(copyButton('https://github.com/' + repo.slug + '/issues', 'Copy link to issues page'))
+        }
         if (!repo) {
           els.filter.hidden = true
           els.message.textContent = 'Not sure which repo this project is. Pick it above.'
@@ -325,6 +391,7 @@
           meta.appendChild(document.createTextNode(who + ' · ' + age(issue.updatedAt)))
           title.appendChild(meta)
           row.appendChild(title)
+          row.appendChild(copyButton(issue.url, 'Copy link to #' + issue.number))
           li.appendChild(row)
           var key = repo.id + '#' + issue.number
           row.addEventListener('click', function () {
