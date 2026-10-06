@@ -129,6 +129,8 @@
         line-height: 18px;
       }
       .copy:hover { border-color: var(--border, #555); color: var(--foreground, #ddd); }
+      #hint { margin: -2px 0 8px; font-size: 11px; color: var(--recent); }
+      #hint:empty { display: none; }
       .copied { color: var(--primary, #3b82f6); }
       #refresh { font-size: 15px; color: var(--feature); }
       #refresh.spinning { animation: spin 1s linear infinite; }
@@ -138,8 +140,9 @@
     </style>
   </head>
   <body>
-    <header><h1 id="heading">GitHub Tasks</h1><span id="repoLink"></span><span class="muted" id="count" style="margin-left:auto;flex:none"></span><button id="refresh" class="copy" title="Refresh issues from GitHub">⟳</button></header>
+    <header><h1 id="heading">GitHub Tasks</h1><button id="change" class="copy" title="Change which GitHub repo this project shows" hidden>▾</button><span id="repoLink"></span><span class="muted" id="count" style="margin-left:auto;flex:none"></span><button id="refresh" class="copy" title="Refresh issues from GitHub">⟳</button></header>
     <div id="manualCopy"></div>
+    <div id="hint"></div>
     <select id="repoPicker" hidden></select>
     <input id="filter" type="search" placeholder="Filter by #, title or label" hidden />
     <div id="message" class="muted"></div>
@@ -150,11 +153,12 @@
       var DATA = /*__GITHUB_TASKS_DATA__*/null
 
       var els = {}
-      ;['heading', 'count', 'refresh', 'repoLink', 'manualCopy', 'repoPicker', 'filter', 'message', 'list', 'footer'].forEach(function (id) {
+      ;['heading', 'count', 'refresh', 'change', 'hint', 'repoLink', 'manualCopy', 'repoPicker', 'filter', 'message', 'list', 'footer'].forEach(function (id) {
         els[id] = document.getElementById(id)
       })
 
       var refreshNote = ''
+      var pickerOpen = false
       var ctx = null
       var ctxKey = ''
       var pickedRepoByKey = {}
@@ -265,31 +269,46 @@
       }
 
       // Candidate repos for the focused worktree, best evidence first.
+      // Repos the snapshot links to the focused worktree, plus how sure we are.
       function candidates() {
-        if (!ctx) return []
+        if (!ctx) return { repos: [], how: 'none' }
         for (var i = 0; i < ctx.terminals.length; i++) {
           var known = DATA.terminals[ctx.terminals[i].id]
-          if (known && known.repoId && repoById(known.repoId)) return [repoById(known.repoId)]
+          if (known && known.repoId && repoById(known.repoId)) return { repos: [repoById(known.repoId)], how: 'terminal' }
         }
         var branch = (ctx.branch || '').replace(/^refs\/heads\//, '')
         var ids = {}
         DATA.worktrees.forEach(function (w) {
           if (w.displayName === ctx.displayName && w.branch === branch) ids[w.repoId] = true
         })
-        return Object.keys(ids).map(repoById).filter(Boolean)
+        return { repos: Object.keys(ids).map(repoById).filter(Boolean), how: 'name' }
       }
 
-      // Manual repo picks survive terminals opening and closing.
-      function pickKey() {
-        return ctx ? ctx.displayName + '\n' + ctx.branch : ''
+      // Manual picks are kept per terminal (unique to a worktree) and per name + branch
+      // (for worktrees without terminals), for as long as this page lives.
+      function pickKeys() {
+        if (!ctx) return []
+        return ctx.terminals.map(function (t) { return 'term:' + t.id }).concat(['name:' + ctx.displayName + '\n' + ctx.branch])
+      }
+
+      function pickedRepo() {
+        var keys = pickKeys()
+        for (var i = 0; i < keys.length; i++) {
+          var repo = repoById(pickedRepoByKey[keys[i]])
+          if (repo) return repo
+        }
+        return null
       }
 
       function currentRepo() {
         var found = candidates()
-        if (found.length === 1) return { repo: found[0], choices: null }
-        var choices = found.length ? found : DATA.repos.filter(function (r) { return r.slug })
-        var picked = repoById(pickedRepoByKey[pickKey()])
-        return { repo: picked, choices: choices }
+        var allGithub = DATA.repos.filter(function (r) { return r.slug })
+        var picked = pickedRepo()
+        if (picked) return { repo: picked, choices: found.repos.length ? found.repos : allGithub, guessed: false }
+        if (found.repos.length === 1) {
+          return { repo: found.repos[0], choices: found.repos, guessed: found.how === 'name' }
+        }
+        return { repo: null, choices: found.repos.length ? found.repos : allGithub, guessed: false }
       }
 
       function terminalOptions() {
@@ -303,15 +322,20 @@
         return list
       }
 
-      function renderPicker(choices, repo) {
+      // Likely matches first, then every other GitHub repo, so any wrong match can be fixed.
+      function renderPicker(choices, repo, show) {
         var picker = els.repoPicker
-        picker.hidden = !choices
-        if (!choices) return
+        picker.hidden = !show
+        if (!show) return
         picker.innerHTML = ''
         var placeholder = el('option', null, 'Choose the GitHub repo for this project…')
         placeholder.value = ''
         picker.appendChild(placeholder)
-        choices.forEach(function (r) {
+        var seen = {}
+        var others = DATA.repos.filter(function (r) { return r.slug && choices.indexOf(r) === -1 })
+        choices.concat(others).forEach(function (r) {
+          if (seen[r.id]) return
+          seen[r.id] = true
           var option = el('option', null, r.slug ? r.name + ' (' + r.slug + ')' : r.name)
           option.value = r.id
           picker.appendChild(option)
@@ -402,6 +426,8 @@
           els.message.textContent = 'No snapshot yet. Run bin/generate.py or "GitHub Tasks: Refresh now".'
           return
         }
+        els.hint.textContent = ''
+        els.change.hidden = true
         if (!ctx) {
           els.heading.textContent = 'GitHub Tasks'
           els.message.textContent = 'Select a project to see its issues.'
@@ -412,7 +438,11 @@
 
         var resolved = currentRepo()
         var repo = resolved.repo
-        renderPicker(resolved.choices, repo)
+        renderPicker(resolved.choices, repo, pickerOpen || !repo)
+        els.change.hidden = !repo
+        els.hint.textContent = resolved.guessed
+          ? 'Guessed from the project name. Wrong? Use ▾, or ⟳ to refresh.'
+          : ''
         els.heading.textContent = repo ? repo.slug || repo.name : ctx.displayName
         els.repoLink.innerHTML = ''
         if (repo && repo.slug) {
@@ -478,7 +508,12 @@
       }
 
       els.repoPicker.addEventListener('change', function () {
-        pickedRepoByKey[pickKey()] = els.repoPicker.value
+        pickKeys().forEach(function (key) { pickedRepoByKey[key] = els.repoPicker.value })
+        pickerOpen = false
+        render()
+      })
+      els.change.addEventListener('click', function () {
+        pickerOpen = !pickerOpen
         render()
       })
       els.filter.addEventListener('input', render)

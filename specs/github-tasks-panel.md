@@ -78,12 +78,23 @@ So the data has to be baked into `panel.html` by something outside the panel.
   3. `--force` writes `panel.html` even when the data is unchanged, so the
      panel always reloads and the footer resets.
   The plugin therefore also requests the `notifications:show` capability.
+- The plugin worker subscribes to `worktree.created` and runs the generator
+  then, so a newly added project appears without waiting for the timer.
 - Panel behaviour:
   1. Polls `workspace.readContext` every 2 s.
-  2. Picks the repo: first by any terminal handle that the snapshot maps to a
-     repo; otherwise by `displayName` + `branch` (with `refs/heads/` stripped)
-     when exactly one repo matches; otherwise shows a repo picker listing the
-     candidates (or all GitHub repos when none match).
+  2. Picks the repo, in this order:
+     a. a repo the user picked for this worktree (remembered per terminal
+        handle of the worktree, and per `displayName` + `branch`; kept until
+        the panel reloads, since a panel has no storage);
+     b. any terminal handle that the snapshot maps to a repo;
+     c. `displayName` + `branch` (with `refs/heads/` stripped) when exactly
+        one repo matches. This is only a guess (the snapshot can predate the
+        project, and names like `master` repeat), so the panel says "Guessed
+        from the project name" and suggests ⟳;
+     d. otherwise a repo picker listing the candidates (or all GitHub repos
+        when none match).
+     A ▾ button next to the repo name always opens the picker (candidates
+     first, then every GitHub repo), so a wrong match can be changed.
   3. Lists open issues: number, title, labels, assignee, age. A text filter
      narrows by number, title or label. Styling, with a palette for Orca's
      light and dark modes (the panel `<html>` has class `light` or `dark`):
